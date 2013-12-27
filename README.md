@@ -1,4 +1,4 @@
 martini-login
 =============
 
-Basic login handler for Martini
+This is a very basic login session handler for Martini, docs in code...
