@@ -69,11 +69,11 @@
 //        u := user.(*UserModel)
 //        db.Save(u)
 //    }
-
 package login
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/codegangsta/martini"
 	"github.com/codegangsta/martini-contrib/render"
 	"github.com/codegangsta/martini-contrib/sessions"
@@ -81,6 +81,9 @@ import (
 	"net/http"
 )
 
+// User defines all the functions necessary to work with the user's authentication.
+// The caller should implement these functions for whatever system of authentication
+// they choose to use
 type User interface {
 	// Return whether this user is logged in or not
 	IsAuthenticated() bool
@@ -92,8 +95,10 @@ type User interface {
 	Logout()
 }
 
-// Try to read a valid user object out of the session. Inject that object, or
-// the zero value user object (from newUser) into the context.
+// SessionUser will try to read a valid user object out of the session. Then it will
+// inject that object, or the zero value user object (from newUser) into the context.
+// The newUser() function should provide a valid 0value structure for the caller's
+// user type
 func SessionUser(newUser func() User) martini.Handler {
 	return func(s sessions.Session, c martini.Context, l *log.Logger) {
 		userJson := s.Get("AUTHUSER")
@@ -112,28 +117,39 @@ func SessionUser(newUser func() User) martini.Handler {
 	}
 }
 
-// After you have validated a user, you should call this function with the current
-// session and user object. This will mark this session as authenticated and call
-// the Login() method of your user object.
+// AuthenticatSession will mark the session and user object as authenticated. Then
+// the Login() user function will be called. This function should be called after
+//you have validated a user.
 func AuthenticateSession(s sessions.Session, user User) error {
 	user.Login()
-	userJson, err := json.Marshal(user)
-	s.Set("AUTHUSER", userJson)
-	return err
+	return UpdateUser(s, user)
 }
 
-// To clear out the session, call this function. Your user object's Logout()
-// function will be called.
+// Logout will clear out the session and call the Logout() user function.
 func Logout(s sessions.Session, user User) {
 	user.Logout()
 	s.Delete("AUTHUSER")
 }
 
-// Any routes that require a login should have this handler placed in the flow.
-func LoginRequired(r render.Render, user User, w http.ResponseWriter) {
+// LoginRequired verifies that the current user is authenticated. Any routes that
+// require a login should have this handler placed in the flow. If the user is not
+// authenticated, they will be redirected to /login with the "next" get parameter
+// set to the attempted URL.
+func LoginRequired(r render.Render, user User, w http.ResponseWriter, req *http.Request) {
 	if user.IsAuthenticated() == false {
-		w.Header().Set("Location", "/login")
-		r.Error(302)
-		// XXX implement ?next= pattern
+		path := fmt.Sprintf("/login?next=%s", req.URL.Path)
+		r.Redirect(path, 302)
 	}
+}
+
+// UpdateUser updates the User object stored in the session. This is useful incase a change
+// is made to the user model that needs to persist across requests.
+func UpdateUser(s sessions.Session, user User) error {
+	userJson, err := json.Marshal(user)
+	if err != nil {
+		return err
+	}
+
+	s.Set("AUTHUSER", userJson)
+	return nil
 }
